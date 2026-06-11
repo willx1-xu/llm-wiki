@@ -237,6 +237,17 @@ def save_page(data: dict):
     p.write_text(fm_block + body, "utf-8")
     return {"ok": True}
 
+@app.delete("/api/page")
+def delete_page(path: str = Query(...)):
+    """Delete a wiki page by path."""
+    p = safe_path(path)
+    if not p.exists():
+        raise HTTPException(404, "page not found")
+    if p.parent == WIKI_ROOT.parent or not str(p).startswith(str(WIKI_ROOT)):
+        raise HTTPException(403, "can only delete files inside wiki/")
+    p.unlink()
+    return {"ok": True, "deleted": path}
+
 @app.post("/api/fetch-url")
 async def fetch_url(data: dict):
     """Fetch and extract text content from a URL for ingest."""
@@ -259,7 +270,16 @@ async def fetch_url(data: dict):
             # Truncate to reasonable size
             title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE|re.DOTALL)
             title = title_match.group(1).strip() if title_match else url
-            return {"ok": True, "title": title[:200], "content": text[:8000], "url": url}
+            # Quality check: detect login walls and empty pages
+            closed_platforms = ['mp.weixin.qq.com', 'weibo.com', 'xiaohongshu.com', 'douyin.com']
+            is_closed = any(domain in url for domain in closed_platforms)
+            text_len = len(text)
+            warnings = []
+            if text_len < 200:
+                warnings.append("内容过短（<200字符），可能是登录墙或JS渲染页面，摄入后质量无法保证")
+            if is_closed:
+                warnings.append(f"该域名属于封闭平台，抓取到的内容可能不完整。建议手动复制原文粘贴")
+            return {"ok": True, "title": title[:200], "content": text[:8000], "url": url, "textLength": text_len, "warnings": warnings}
     except Exception as e:
         raise HTTPException(502, f"Fetch failed: {str(e)[:200]}")
 
@@ -716,7 +736,7 @@ async function loadPage(path) {
 
 function renderPage(data) {
   const cv = document.getElementById('content-view');
-  let html = `<div id="page-path">📄 ${data.path}</div>`;
+  let html = `<div id="page-path" style="display:flex;align-items:center;gap:12px"><span>📄 ${data.path}</span><button onclick="deletePage('${data.path}')" style="padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;opacity:.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">🗑 删除</button></div>`;
 
   // Frontmatter badges
   if (data.frontmatter && Object.keys(data.frontmatter).length > 0) {
@@ -743,6 +763,19 @@ function renderPage(data) {
   html += marked.parse(md);
   cv.innerHTML = html;
   cv.classList.add('active');
+}
+
+async function deletePage(path) {
+  if (!confirm(`确定删除 ${path}？此操作不可恢复。`)) return;
+  try {
+    const res = await fetch(`/api/page?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+    if (res.ok) {
+      document.getElementById('content-view').innerHTML = '<div class="empty-state"><div class="icon">🗑</div><h2>已删除</h2><p>' + path + '</p></div>';
+      loadTree();
+      loadStats();
+      loadGraph();
+    }
+  } catch(e) { alert('删除失败'); }
 }
 
 // ── wikilink navigation ──
