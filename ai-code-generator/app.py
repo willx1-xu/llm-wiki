@@ -1,12 +1,13 @@
 import os
 import re
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import httpx
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 
@@ -22,11 +23,60 @@ RULES:
 - You may use CDN links for libraries (Tailwind, Font Awesome, etc).
 - Use Chinese for any text content.
 - Make the page interactive and functional, not just static.
-- The first line must be <!DOCTYPE html>"""
+- The first line must be <!DOCTYPE html>
+
+CRITICAL - Real media sources:
+- For music/audio apps, use these real MP3 URLs (SoundHelix, guaranteed working):
+  https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3 (Song-2 through Song-16)
+- For video, use: https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4
+- For images, use: https://picsum.photos/400/300 (random real images)
+- NEVER invent/fabricate media URLs. Always use the real sources listed above.
+- For a music player, pre-populate the playlist with SoundHelix songs as defaults.
+- You can also integrate the free iTunes Search API (no key needed) to let users search real songs:
+  GET https://itunes.apple.com/search?term=SEARCH_TERM&media=music&limit=20
+  Each result has .previewUrl (30s clip), .trackName, .artistName, .artworkUrl100."""
 
 
 class GenerateRequest(BaseModel):
     prompt: str
+
+
+def build_user_prompt(raw_prompt: str) -> str:
+    """根据用户需求关键词，自动注入真实媒体源要求"""
+    keywords_media = {
+        "音乐": """
+【媒体源要求 - 必须严格遵守，这是用户能听到音乐的唯一方式】
+你必须通过 iTunes Search API 获取真实歌曲，previewUrl 就是真正的试听链接。
+API 用法（免费，无需 Key，直接在 JS 里 fetch）：
+
+  const term = encodeURIComponent('周杰伦'); // 搜索词
+  const url = `https://itunes.apple.com/search?term=${term}&media=music&limit=15`;
+  const res = await fetch(url);
+  const data = await res.json();
+  // data.results 里每首歌有：
+  //   .trackName    — 真实歌名
+  //   .artistName   — 真实歌手
+  //   .previewUrl   — 真实 30 秒试听（直接用这个当音乐源）
+  //   .artworkUrl100 — 真实专辑封面
+
+- 页面加载时自动 fetch 一个默认歌单，把 previewUrl 设为 Audio 的 src。
+- 加一个搜索框让用户搜真歌。
+- 禁止编造任何 mp3 URL，禁止用 SoundHelix 或任何示例链接。
+- 禁止用 emoji 做专辑封面，必须用 artworkUrl100。
+- 歌曲列表里曲目名称必须和 audio.src 对应，不能张冠李戴。""",
+        "视频": """
+【媒体源要求】
+- 使用 <video> 标签播放真实视频。
+- 测试视频: https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4""",
+        "图片": """
+【媒体源要求】
+- 使用真实图片 URL: https://picsum.photos/400/300 (可调尺寸)""",
+    }
+
+    for keyword, instruction in keywords_media.items():
+        if keyword in raw_prompt:
+            return raw_prompt + "\n\n" + instruction
+    return raw_prompt
 
 
 def extract_html(raw: str) -> str:
@@ -66,7 +116,7 @@ async def generate(req: GenerateRequest):
                     "model": "deepseek-chat",
                     "messages": [
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": req.prompt},
+                        {"role": "user", "content": build_user_prompt(req.prompt)},
                     ],
                     "temperature": 0.7,
                     "max_tokens": 8192,
