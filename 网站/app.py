@@ -62,27 +62,46 @@ def build_graph_data() -> dict:
     edges = []
     node_ids = set()
     pages = all_pages()
+    # First pass: collect nodes
     for p in pages:
-        rel = str(p.relative_to(WIKI_ROOT)).replace("\\", "/")
         name = p.stem
         if name in node_ids:
             continue
         node_ids.add(name)
         text = p.read_text("utf-8")
         fm, _ = parse_frontmatter(text)
+        rel = str(p.relative_to(WIKI_ROOT)).replace("\\", "/")
         nodes.append({
             "id": name,
-            "label": fm.get("title", name),
+            "label": fm.get("title", name).strip('"'),
             "type": fm.get("type", "concept"),
-            "path": "wiki/" + rel.replace("\\", "/")
+            "path": "wiki/" + rel.replace("\\", "/"),
+            "inCount": 0,
+            "outCount": 0
         })
+    # Second pass: build edges & count connections
+    node_map = {n["id"]: n for n in nodes}
+    edge_set = set()
     for p in pages:
         text = p.read_text("utf-8")
         links = collect_wikilinks(text)
         src = p.stem
         for tgt in links:
             if tgt in node_ids and tgt != src:
-                edges.append({"source": src, "target": tgt})
+                key = tuple(sorted([src, tgt]))
+                if key not in edge_set:
+                    edge_set.add(key)
+                    edges.append({"source": src, "target": tgt})
+                    if node_map.get(src):
+                        node_map[src]["outCount"] += 1
+                    if node_map.get(tgt):
+                        node_map[tgt]["inCount"] += 1
+    # Compute weight = total connections (capped for sizing)
+    max_conn = max((n["inCount"] + n["outCount"] for n in nodes), default=1)
+    for n in nodes:
+        total = n["inCount"] + n["outCount"]
+        n["weight"] = round(total / max(max_conn, 1), 2)
+        n["radius"] = 6 + int(n["weight"] * 14)  # 6–20px
     return {"nodes": nodes, "edges": edges}
 
 async def call_llm(system: str, user: str, temperature: float = 0.3) -> str:
@@ -138,6 +157,59 @@ def apply_llm_changes(response: str) -> list[dict]:
 
 # ── API routes ──────────────────────────────────────────
 
+@app.get("/api/search")
+def search_wiki(q: str = Query(...), limit: int = 15):
+    """Full-text search across all wiki pages, ranked by relevance."""
+    if not q.strip():
+        return []
+    keywords = q.lower().split()
+    results = []
+    for p in all_pages():
+        text = p.read_text("utf-8")
+        fm, body = parse_frontmatter(text)
+        title = fm.get("title", p.stem).strip('"')
+        tags = fm.get("tags", "")
+        ptype = fm.get("type", "page")
+
+        # Score: title match (×10) + tag match (×5) + body match (×1)
+        score = 0
+        body_lower = body.lower()
+        for kw in keywords:
+            if kw in p.stem.lower() or kw in title.lower():
+                score += 10
+            if kw in tags.lower():
+                score += 5
+            score += body_lower.count(kw)
+
+        if score > 0:
+            # Extract snippet around first keyword match
+            snippet = ""
+            first_idx = 99999
+            for kw in keywords:
+                idx = body_lower.find(kw)
+                if idx != -1 and idx < first_idx:
+                    first_idx = idx
+            if first_idx < 99999:
+                start = max(0, first_idx - 40)
+                end = min(len(body), first_idx + 120)
+                snippet = ("..." if start > 0 else "") + body[start:end].replace("\n", " ").strip() + ("..." if end < len(body) else "")
+
+            rel_path = str(p.relative_to(WIKI_ROOT)).replace("\\", "/")
+            results.append({
+                "id": p.stem,
+                "title": title,
+                "type": ptype,
+                "tags": tags,
+                "path": "wiki/" + rel_path.replace("\\", "/"),
+                "score": score,
+                "snippet": snippet,
+                "links": collect_wikilinks(text),
+                "linkCount": len(collect_wikilinks(text))
+            })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:limit]
+
 @app.get("/api/tree")
 def get_tree(dir: str = "wiki"):
     root = BASE / dir
@@ -172,18 +244,54 @@ async def ingest(data: dict):
     if not content:
         raise HTTPException(400, "content required")
 
-    # Gather existing wiki context
+    # Check for existing similar pages
+    existing_pages = []
+    for p in all_pages():
+        text = p.read_text("utf-8")
+        fm, body = parse_frontmatter(text)
+        existing_pages.append({
+            "id": p.stem,
+            "title": fm.get("title", p.stem).strip('"'),
+            "type": fm.get("type", "page"),
+            "body_preview": body[:300]
+        })
+
+    # Simple overlap detection
+    overlaps = []
+    content_lower = content.lower()
+    for ep in existing_pages:
+        # Check if key terms from existing pages appear in new content
+        terms = ep["id"].replace("-", " ").split()
+        match_count = sum(1 for t in terms if t.lower() in content_lower)
+        if match_count >= len(terms) * 0.5 and len(terms) >= 2:
+            overlaps.append(ep)
+
+    # Build existing context for LLM
+    existing_summary = "\n".join(
+        f"- [{ep['type']}] {ep['title']} (id: {ep['id']})"
+        for ep in existing_pages
+    )
+
     index_content = ""
     idx_path = WIKI_ROOT / "index.md"
     if idx_path.exists():
         index_content = idx_path.read_text("utf-8")[:3000]
 
-    system = SCHEMA + "\n\nYou are maintaining the wiki. When ingesting, respond with EXACTLY the file changes needed. For each file to create or update, output:\n\n```markdown {wiki/path/to/file.md}\n(content here)\n```"
-    user = f"## Ingest Task\n\n**Source title**: {title}\n\n**Current index**:\n{index_content}\n\n**Raw content to ingest**:\n\n{content}\n\nInstructions:\n1. Extract key concepts, entities, and insights\n2. Create/update source summary in wiki/sources/\n3. Create/update concept pages in wiki/concepts/\n4. Create/update entity pages in wiki/entities/\n5. Update wiki/index.md with all new pages\n6. Append to wiki/log.md with timestamp\n\nOutput each file as a code block with the file path in braces."
+    overlap_warning = ""
+    if overlaps:
+        overlap_warning = f"\n\n⚠️ POTENTIAL DUPLICATES DETECTED: The following existing pages overlap with the new content. UPDATE these pages instead of creating duplicates: {json.dumps(overlaps, ensure_ascii=False)}"
+
+    system = SCHEMA + "\n\nYou are a disciplined wiki maintainer. For each extracted piece of knowledge, assign a confidence level (high/medium/low). Skip content with confidence=low. If similar pages exist, UPDATE them instead of creating duplicates. Output each file as:\n\n```markdown {wiki/path/to/file.md}\n(full markdown with frontmatter)\n```"
+    user = f"## Ingest Task\n\n**Source title**: {title}\n\n**Existing pages**:\n{existing_summary}{overlap_warning}\n\n**Raw content**:\n\n{content}\n\nInstructions:\n1. Only extract knowledge with confidence=high or medium. Skip trivia.\n2. If a similar page already exists, UPDATE it (add new info, don't duplicate).\n3. Create source summary in wiki/sources/\n4. Create/update concept pages in wiki/concepts/\n5. Create/update entity pages in wiki/entities/\n6. Update wiki/index.md\n7. Append to wiki/log.md\n8. Each page MUST have at least 2 [[wikilinks]] to existing pages.\n\nOutput each file as a code block with the file path in braces."
 
     llm_resp = await call_llm(system, user)
     results = apply_llm_changes(llm_resp)
-    return {"ok": True, "changes": results, "llm_raw": llm_resp[:1000]}
+    return {
+        "ok": True,
+        "changes": results,
+        "overlaps": overlaps,
+        "llm_raw": llm_resp[:2000]
+    }
 
 @app.post("/api/query")
 async def query_wiki(data: dict):
@@ -267,7 +375,21 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 /* main */
 #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #toolbar { padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: var(--surface); }
-#toolbar button { padding: 7px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); cursor: pointer; font-size: 13px; transition: all .15s; }
+#search-wrap { position: relative; flex: 0 1 360px; }
+#search-input { width: 100%; padding: 8px 14px 8px 34px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; outline: none; transition: border .15s; }
+#search-input:focus { border-color: var(--accent2); }
+#search-input::placeholder { color: var(--muted); }
+#search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--muted); pointer-events: none; }
+#search-results { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; max-height: 360px; overflow-y: auto; z-index: 100; display: none; box-shadow: var(--shadow); }
+#search-results.show { display: block; }
+.search-result { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .1s; }
+.search-result:last-child { border-bottom: none; }
+.search-result:hover { background: rgba(88,166,255,.08); }
+.search-result .sr-title { font-weight: 600; font-size: 13px; color: var(--accent2); }
+.search-result .sr-type { font-size: 10px; color: var(--muted); margin-left: 6px; }
+.search-result .sr-snippet { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.search-result .sr-score { float: right; font-size: 10px; color: var(--accent); }
+#toolbar button { padding: 7px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); cursor: pointer; font-size: 13px; transition: all .15s; white-space: nowrap; }
 #toolbar button:hover { border-color: var(--accent2); color: var(--accent2); }
 #toolbar button.active { background: var(--accent2); color: #fff; border-color: var(--accent2); }
 #view-toggle { margin-left: auto; display: flex; gap: 4px; background: var(--card); border-radius: 6px; padding: 2px; }
@@ -348,8 +470,12 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 <!-- Main -->
 <div id="main">
   <div id="toolbar">
-    <span style="font-weight:600;color:var(--text)">📖 浏览器</span>
-    <span style="flex:1"></span>
+    <span style="font-weight:600;color:var(--text)">📖 LLM Wiki</span>
+    <div id="search-wrap">
+      <span id="search-icon">🔍</span>
+      <input id="search-input" type="text" placeholder="搜索知识库..." autocomplete="off" oninput="doSearch()" onfocus="doSearch()" onblur="setTimeout(()=>hideSearch(),200)">
+      <div id="search-results"></div>
+    </div>
     <div id="view-toggle">
       <button onclick="switchView('content')" class="active" id="btn-content">📄 内容</button>
       <button onclick="switchView('graph')" id="btn-graph">🕸 图谱</button>
@@ -413,6 +539,36 @@ marked.setOptions({ breaks: true, gfm: true });
 async function init() {
   await loadTree();
   await loadStats();
+}
+
+// ── search ──
+let searchTimeout;
+async function doSearch() {
+  clearTimeout(searchTimeout);
+  const q = document.getElementById('search-input').value.trim();
+  const results = document.getElementById('search-results');
+  if (!q) { results.classList.remove('show'); return; }
+  searchTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (data.length === 0) {
+        results.innerHTML = '<div class="search-result" style="color:var(--muted)">未找到匹配结果</div>';
+      } else {
+        results.innerHTML = data.map(r => `
+          <div class="search-result" onclick="loadPage('${r.path}');hideSearch()">
+            <span class="sr-score">${r.score}</span>
+            <span class="sr-title">${r.title}</span>
+            <span class="sr-type">${r.type} · ${r.linkCount}个链接</span>
+            <div class="sr-snippet">${r.snippet || ''}</div>
+          </div>`).join('');
+      }
+      results.classList.add('show');
+    } catch(e) {}
+  }, 200);
+}
+function hideSearch() {
+  document.getElementById('search-results').classList.remove('show');
 }
 
 // ── tree ──
@@ -619,7 +775,8 @@ function renderGraph() {
       tooltip.style.display = 'block';
       tooltip.style.left = (pos.x + 15) + 'px';
       tooltip.style.top = (pos.y - 10) + 'px';
-      tooltip.innerHTML = `<strong>${hoverNode.label}</strong><br><span style="color:var(--muted)">${hoverNode.type}</span>`;
+      const conns = (hoverNode.inCount||0) + (hoverNode.outCount||0);
+      tooltip.innerHTML = `<strong>${hoverNode.label}</strong><br><span style="color:var(--muted)">${hoverNode.type} · ${conns}个关联</span>`;
       canvas.style.cursor = 'pointer';
     } else {
       tooltip.style.display = 'none';
@@ -719,12 +876,15 @@ function renderGraph() {
 
     // Nodes
     for (const n of nodes) {
-      const r = n === hoverNode ? 10 : 7;
+      const baseR = n.radius || 7;
+      const r = n === hoverNode ? baseR + 4 : baseR;
       const color = typeColors[n.type] || '#6b7280';
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.fillStyle = color;
+      ctx.globalAlpha = 0.85;
       ctx.fill();
+      ctx.globalAlpha = 1;
       if (n === hoverNode) {
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
@@ -762,10 +922,15 @@ async function doIngest() {
       body: JSON.stringify({ title, content })
     });
     const data = await res.json();
-    result.innerHTML = '<span class="status-badge status-ok">✓ 摄入完成</span>\n\n' +
-      data.changes.map(c => `• ${c.action}: ${c.path || c.content.slice(0, 80)}`).join('\n');
+    let msg = '<span class="status-badge status-ok">✓ 摄入完成</span>\n\n';
+    if (data.overlaps && data.overlaps.length > 0) {
+      msg += '<span class="status-badge status-info">⚠ 检测到重叠: ' + data.overlaps.map(o=>o.title).join(', ') + '</span>\n\n';
+    }
+    msg += data.changes.map(c => `• ${c.action}: ${c.path || (c.content||'').slice(0, 80)}`).join('\n');
+    result.innerHTML = msg;
     loadTree();
     loadStats();
+    loadGraph();  // refresh graph data
   } catch(e) {
     result.innerHTML = '<span class="status-badge" style="background:rgba(248,113,113,.15);color:var(--red)">✗ 失败</span>';
   }
