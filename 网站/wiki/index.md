@@ -1,6 +1,8 @@
 ---
 title: "总索引"
 type: index
+category: knowledge
+privacy: public
 updated: 2026-06-11
 ---
 

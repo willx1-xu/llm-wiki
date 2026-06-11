@@ -1,6 +1,8 @@
 ---
 title: "关键词研究 (Keyword Research)"
 type: concept
+category: project
+privacy: public
 tags: [seo, keyword, 搜索意图, 内容策略]
 created: 2026-06-11
 updated: 2026-06-11

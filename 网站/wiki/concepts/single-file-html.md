@@ -1,6 +1,8 @@
 ---
 title: "Single File HTML"
 type: concept
+category: knowledge
+privacy: public
 tags: [html, web-development, architecture]
 created: 2026-06-11
 updated: 2026-06-11

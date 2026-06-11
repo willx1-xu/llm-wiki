@@ -1,6 +1,8 @@
 ---
 title: "GEO — 搜索引擎优化体系"
 type: concept
+category: project
+privacy: public
 tags: [seo, geo, 独立站, 搜索引擎, 谷歌收录, 内容策略]
 created: 2026-06-11
 updated: 2026-06-11

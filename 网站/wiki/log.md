@@ -1,6 +1,8 @@
 ---
 title: "操作日志"
 type: log
+category: knowledge
+privacy: public
 updated: 2026-06-11
 ---
 

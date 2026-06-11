@@ -1,6 +1,8 @@
 ---
 title: "HTML5 Canvas 游戏"
 type: concept
+category: project
+privacy: public
 tags: [html5, canvas, game-development, frontend]
 created: 2026-06-11
 updated: 2026-06-11

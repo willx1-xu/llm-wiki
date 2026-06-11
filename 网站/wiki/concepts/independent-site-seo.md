@@ -1,6 +1,8 @@
 ---
 title: "独立站 SEO 策略"
 type: concept
+category: project
+privacy: public
 tags: [独立站, seo, 内容策略, keyword, faq]
 created: 2026-06-11
 updated: 2026-06-11

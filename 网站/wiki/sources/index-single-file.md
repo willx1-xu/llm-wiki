@@ -1,6 +1,8 @@
 ---
 title: "Index Single File HTML"
 type: source
+category: knowledge
+privacy: public
 tags: [html, web-development, single-file-applications]
 created: 2026-06-11
 updated: 2026-06-11

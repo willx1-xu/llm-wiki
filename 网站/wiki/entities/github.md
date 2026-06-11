@@ -1,6 +1,8 @@
 ---
 title: "GitHub"
 type: entity
+category: project
+privacy: public
 tags: [github, 平台, 代码托管, 开源, seo]
 created: 2026-06-11
 updated: 2026-06-11

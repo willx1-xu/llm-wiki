@@ -1,6 +1,8 @@
 ---
 title: "GitHub SEO — 项目搜索优化"
 type: concept
+category: project
+privacy: public
 tags: [github, seo, 开源, 项目推广, discoverability]
 created: 2026-06-11
 updated: 2026-06-11

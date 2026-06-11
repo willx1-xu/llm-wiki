@@ -1,6 +1,8 @@
 ---
 title: "可爱风贪吃蛇"
 type: source
+category: project
+privacy: public
 tags: [game, html5, canvas, snake, touch-controls, particles]
 created: 2026-06-10
 updated: 2026-06-11

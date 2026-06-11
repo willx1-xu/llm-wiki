@@ -1,6 +1,8 @@
 ---
 title: "GEO 搜索引擎优化 — 知识来源"
 type: source
+category: project
+privacy: public
 tags: [geo, seo, 独立站, 搜索引擎]
 created: 2026-06-11
 updated: 2026-06-11

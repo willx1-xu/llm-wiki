@@ -1,6 +1,8 @@
 ---
 title: "Google Search Console"
 type: entity
+category: knowledge
+privacy: public
 tags: [google, seo, 工具, 搜索分析]
 created: 2026-06-11
 updated: 2026-06-11

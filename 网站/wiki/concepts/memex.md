@@ -1,6 +1,8 @@
 ---
 title: "Memex"
 type: concept
+category: learning
+privacy: public
 tags: [history, knowledge-management, vision]
 created: 2026-06-11
 updated: 2026-06-11

@@ -1,6 +1,8 @@
 ---
 title: "npm (Node Package Manager)"
 type: entity
+category: project
+privacy: public
 tags: [npm, 包管理, javascript, seo, 前端]
 created: 2026-06-11
 updated: 2026-06-11

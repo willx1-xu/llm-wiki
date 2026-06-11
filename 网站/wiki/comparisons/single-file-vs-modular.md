@@ -1,6 +1,8 @@
 ---
 title: "Single File vs Modular Architecture"
 type: comparison
+category: knowledge
+privacy: public
 tags: [html, architecture, web-development]
 created: 2026-06-11
 updated: 2026-06-11

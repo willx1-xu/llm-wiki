@@ -1,6 +1,8 @@
 ---
 title: "Andrej Karpathy"
 type: entity
+category: learning
+privacy: public
 tags: [person, ai, researcher]
 created: 2026-06-11
 updated: 2026-06-11

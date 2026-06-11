@@ -75,6 +75,8 @@ def build_graph_data() -> dict:
             "id": name,
             "label": fm.get("title", name).strip('"'),
             "type": fm.get("type", "concept"),
+            "category": fm.get("category", "knowledge"),
+            "privacy": fm.get("privacy", "public"),
             "path": "wiki/" + rel.replace("\\", "/"),
             "inCount": 0,
             "outCount": 0
@@ -167,6 +169,8 @@ def search_wiki(q: str = Query(...), limit: int = 15):
     for p in all_pages():
         text = p.read_text("utf-8")
         fm, body = parse_frontmatter(text)
+        if fm.get("privacy") == "private":
+            continue
         title = fm.get("title", p.stem).strip('"')
         tags = fm.get("tags", "")
         ptype = fm.get("type", "page")
@@ -337,6 +341,21 @@ async def ingest(data: dict):
         for c in clarifications:
             clarification_note += f"- **{c['term']}** = {c['chosen']}\n"
 
+    # Auto-detect sensitive content
+    sensitive_patterns = {
+        "API Key": r'(?:sk|api[_-]?key|ghp|github[_-]?pat)[\s:=]+[\w-]{20,}',
+        "Phone": r'1[3-9]\d{9}',
+        "ID Number": r'\d{17}[\dXx]',
+        "Email (personal)": r'[\w.-]+@(?!example|test|demo)[\w.-]+\.\w+',
+        "Internal URL": r'https?://(?!github|npmjs|pypi|stackoverflow|wikipedia)[\w.-]+\.(?:corp|internal|admin|private)',
+        "Salary/Payment": r'(?:工资|薪资|salary|年薪)\D{0,5}\d{3,}[w万k千元]',
+    }
+    sensitive_flags = []
+    for label, pat in sensitive_patterns.items():
+        if re.search(pat, content, re.IGNORECASE):
+            sensitive_flags.append(label)
+    privacy_override = "private" if sensitive_flags else None
+
     # Check for existing similar pages
     existing_pages = []
     for p in all_pages():
@@ -374,8 +393,12 @@ async def ingest(data: dict):
     if overlaps:
         overlap_warning = f"\n\n⚠️ POTENTIAL DUPLICATES DETECTED: The following existing pages overlap with the new content. UPDATE these pages instead of creating duplicates: {json.dumps(overlaps, ensure_ascii=False)}"
 
-    system = SCHEMA + "\n\nYou are a disciplined wiki maintainer. For each extracted piece of knowledge, assign a confidence level (high/medium/low). Skip content with confidence=low. If similar pages exist, UPDATE them instead of creating duplicates. Output each file as:\n\n```markdown {wiki/path/to/file.md}\n(full markdown with frontmatter)\n```"
-    user = f"## Ingest Task\n\n**Source title**: {title}{clarification_note}\n\n**Existing pages**:\n{existing_summary}{overlap_warning}\n\n**Raw content**:\n\n{content}\n\nInstructions:\n1. Only extract knowledge with confidence=high or medium. Skip trivia.\n2. If a similar page already exists, UPDATE it (add new info, don't duplicate).\n3. Create source summary in wiki/sources/\n4. Create/update concept pages in wiki/concepts/\n5. Create/update entity pages in wiki/entities/\n6. Update wiki/index.md\n7. Append to wiki/log.md\n8. Each page MUST have at least 2 [[wikilinks]] to existing pages.\n\nOutput each file as a code block with the file path in braces."
+    privacy_note = ""
+    if privacy_override:
+        privacy_note = f"\n\n## 🔒 敏感内容检测\n自动检测到以下敏感信息：{', '.join(sensitive_flags)}。所有生成的页面必须设置 `privacy: private`，并警告用户不要提交到公开仓库。"
+
+    system = SCHEMA + "\n\nYou are a disciplined wiki maintainer. For each extracted piece of knowledge, assign a confidence level (high/medium/low) and REQUIRED fields: category (knowledge/project/personal/learning/work), privacy (public/private/internal). Skip confidence=low content. If similar pages exist, UPDATE them. Output each file as:\n\n```markdown {wiki/path/to/file.md}\n(full markdown with frontmatter)\n```"
+    user = f"## Ingest Task\n\n**Source title**: {title}{clarification_note}{privacy_note}\n\n**Existing pages**:\n{existing_summary}{overlap_warning}\n\n**Raw content**:\n\n{content}\n\nInstructions:\n1. Classify EVERY page: category=(knowledge|project|personal|learning|work), privacy=(public|private|internal)\n2. Only extract knowledge with confidence=high or medium. Skip trivia.\n3. If a similar page already exists, UPDATE it (add new info, don't duplicate).\n4. Create source summary in wiki/sources/\n5. Create/update concept pages in wiki/concepts/\n6. Create/update entity pages in wiki/entities/\n7. Update wiki/index.md\n8. Append to wiki/log.md\n9. Each page MUST have at least 2 [[wikilinks]] to existing pages.\n\nOutput each file as a code block with the file path in braces."
 
     llm_resp = await call_llm(system, user)
     results = apply_llm_changes(llm_resp)
@@ -383,6 +406,8 @@ async def ingest(data: dict):
         "ok": True,
         "changes": results,
         "overlaps": overlaps,
+        "sensitiveFlags": sensitive_flags,
+        "privacyOverride": privacy_override,
         "llm_raw": llm_resp[:2000]
     }
 
@@ -423,8 +448,17 @@ async def lint_wiki():
     return {"report": report}
 
 @app.get("/api/graph")
-def graph():
-    return build_graph_data()
+def graph(category: str = ""):
+    data = build_graph_data()
+    if category:
+        data["nodes"] = [n for n in data["nodes"] if n.get("category") == category]
+        keep_ids = {n["id"] for n in data["nodes"]}
+        data["edges"] = [e for e in data["edges"] if e["source"] in keep_ids and e["target"] in keep_ids]
+    # Exclude private nodes from graph
+    data["nodes"] = [n for n in data["nodes"] if n.get("privacy") != "private"]
+    keep_ids = {n["id"] for n in data["nodes"]}
+    data["edges"] = [e for e in data["edges"] if e["source"] in keep_ids and e["target"] in keep_ids]
+    return data
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -493,6 +527,9 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 #content-view.active { display: block; }
 #graph-view { flex: 1; display: none; position: relative; }
 #graph-view.active { display: block; }
+.graph-filter { padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,.4); color: var(--muted); cursor: pointer; font-size: 11px; transition: all .15s; backdrop-filter: blur(8px); }
+.graph-filter:hover { border-color: var(--accent2); color: var(--accent2); }
+.graph-filter.active { background: var(--accent2); color: #fff; border-color: var(--accent2); }
 #graph-canvas { width: 100%; height: 100%; }
 #graph-tooltip { position: absolute; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; display: none; z-index: 10; }
 /* right panel */
@@ -583,6 +620,14 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
       </div>
     </div>
     <div id="graph-view">
+      <div id="graph-filters" style="position:absolute;top:8px;left:8px;right:8px;display:flex;gap:6px;z-index:5;flex-wrap:wrap">
+        <button class="graph-filter active" onclick="filterGraph('')">全部</button>
+        <button class="graph-filter" onclick="filterGraph('knowledge')">🧠 知识</button>
+        <button class="graph-filter" onclick="filterGraph('project')">📦 项目</button>
+        <button class="graph-filter" onclick="filterGraph('learning')">📖 学习</button>
+        <button class="graph-filter" onclick="filterGraph('personal')">👤 个人</button>
+        <button class="graph-filter" onclick="filterGraph('work')">💼 工作</button>
+      </div>
       <canvas id="graph-canvas"></canvas>
       <div id="graph-tooltip"></div>
     </div>
@@ -816,12 +861,27 @@ function switchView(view) {
 }
 
 // ── graph ──
-async function loadGraph() {
+let activeGraphFilter = '';
+async function loadGraph(category) {
+  if (category !== undefined) activeGraphFilter = category;
   try {
-    const res = await fetch('/api/graph');
+    const url = activeGraphFilter ? `/api/graph?category=${encodeURIComponent(activeGraphFilter)}` : '/api/graph';
+    const res = await fetch(url);
     graphData = await res.json();
     if (currentView === 'graph') renderGraph();
   } catch(e) {}
+}
+
+function filterGraph(category) {
+  document.querySelectorAll('.graph-filter').forEach(b => b.classList.remove('active'));
+  if (category) {
+    document.querySelectorAll('.graph-filter').forEach(b => {
+      if (b.textContent.includes(category) || (category === '' && b.textContent === '全部')) b.classList.add('active');
+    });
+  } else {
+    document.querySelector('.graph-filter').classList.add('active');
+  }
+  loadGraph(category);
 }
 
 function renderGraph() {
@@ -848,8 +908,9 @@ function renderGraph() {
   const nodeMap = {};
   nodes.forEach(n => nodeMap[n.id] = n);
 
-  // Color by type
-  const typeColors = { concept: '#58a6ff', entity: '#f0c674', source: '#4ade80', comparison: '#a78bfa', index: '#f87171', log: '#6b7280' };
+  // Color by category
+  const catColors = { knowledge: '#58a6ff', project: '#f0c674', learning: '#4ade80', personal: '#a78bfa', work: '#f87171' };
+  function nodeColor(n) { return catColors[n.category] || '#6b7280'; }
 
   let hoverNode = null;
   let dragNode = null;
@@ -998,7 +1059,7 @@ function renderGraph() {
     for (const n of nodes) {
       const baseR = n.radius || 7;
       const r = n === hoverNode ? baseR + 4 : baseR;
-      const color = typeColors[n.type] || '#6b7280';
+      const color = nodeColor(n);
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.fillStyle = color;

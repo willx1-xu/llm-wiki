@@ -1,6 +1,8 @@
 ---
 title: "NPM SEO — 包发现优化"
 type: concept
+category: project
+privacy: public
 tags: [npm, seo,包管理, discoverability, frontend]
 created: 2026-06-11
 updated: 2026-06-11

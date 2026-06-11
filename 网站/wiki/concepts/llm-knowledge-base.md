@@ -1,6 +1,8 @@
 ---
 title: "LLM Knowledge Base"
 type: concept
+category: knowledge
+privacy: public
 tags: [llm, knowledge-management, wiki, karpathy]
 created: 2026-06-11
 updated: 2026-06-11

@@ -1,6 +1,8 @@
 ---
 title: "AI 代码生成器"
 type: source
+category: project
+privacy: public
 tags: [ai, code-generation, deepseek, fastapi, vibe-coding]
 created: 2026-06-10
 updated: 2026-06-11

@@ -1,6 +1,8 @@
 ---
 title: "Vibe Coding"
 type: concept
+category: project
+privacy: public
 tags: [ai, coding, paradigm, vibe-coding]
 created: 2026-06-11
 updated: 2026-06-11

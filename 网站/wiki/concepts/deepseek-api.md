@@ -1,6 +1,8 @@
 ---
 title: "DeepSeek API"
 type: concept
+category: project
+privacy: public
 tags: [ai, api, deepseek, llm]
 created: 2026-06-11
 updated: 2026-06-11
