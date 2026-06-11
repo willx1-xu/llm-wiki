@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Prompt Hub · 提示词库{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --bg-card: #161b22;
+            --bg-hover: #21262d;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --orange: #d2991d;
+            --red: #f85149;
+            --purple: #a371f7;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        nav { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 12px 0; position: sticky; top: 0; z-index: 100; }
+        nav .container { display: flex; align-items: center; gap: 20px; }
+        nav .logo { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+        nav .logo span { color: var(--accent); }
+        nav a.nav-link { color: var(--text-dim); font-size: 0.9rem; }
+        nav a.nav-link:hover { color: var(--text); text-decoration: none; }
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text); cursor: pointer; font-size: 0.9rem; transition: all 0.15s; }
+        .btn:hover { background: var(--bg-hover); text-decoration: none; }
+        .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn-primary:hover { background: #4090e0; }
+        .btn-danger { border-color: var(--red); color: var(--red); }
+        .btn-danger:hover { background: var(--red); color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+        input, textarea, select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.95rem; width: 100%; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+        label { display: block; margin-bottom: 4px; font-size: 0.85rem; color: var(--text-dim); font-weight: 500; }
+        .form-group { margin-bottom: 16px; }
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+        .badge-beginner { background: rgba(63,185,80,0.15); color: var(--green); }
+        .badge-intermediate { background: rgba(210,153,29,0.15); color: var(--orange); }
+        .badge-advanced { background: rgba(248,81,73,0.15); color: var(--red); }
+        .layout { display: grid; grid-template-columns: 250px 1fr; gap: 24px; padding: 24px 0; }
+        .sidebar { position: sticky; top: 80px; align-self: start; }
+        .sidebar .cat-link { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text-dim); font-size: 0.9rem; }
+        .sidebar .cat-link:hover, .sidebar .cat-link.active { background: var(--bg-hover); color: var(--text); text-decoration: none; }
+        .sidebar .cat-link.child { padding-left: 24px; font-size: 0.85rem; }
+        .prompt-list { display: flex; flex-direction: column; gap: 12px; }
+        .prompt-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; transition: border-color 0.15s; }
+        .prompt-card:hover { border-color: var(--accent); }
+        .prompt-card h3 { font-size: 1.05rem; margin-bottom: 6px; }
+        .prompt-card .meta { display: flex; gap: 10px; align-items: center; font-size: 0.8rem; color: var(--text-dim); flex-wrap: wrap; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; background: rgba(88,166,255,0.1); color: var(--accent); font-size: 0.75rem; }
+        .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
+        .copy-btn { cursor: pointer; }
+        .flash { padding: 12px 20px; border-radius: 6px; margin-bottom: 16px; }
+        .flash-success { background: rgba(63,185,80,0.15); border: 1px solid var(--green); color: var(--green); }
+        .flash-error { background: rgba(248,81,73,0.15); border: 1px solid var(--red); color: var(--red); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        th { color: var(--text-dim); font-weight: 600; }
+        .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+        .search-bar input { max-width: 400px; }
+        @media (max-width: 768px) { .layout { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <a href="/" class="logo">⚡ <span>Prompt Hub</span></a>
+            <a href="/browse" class="nav-link">浏览</a>
+            <a href="/admin" class="nav-link">管理后台</a>
+        </div>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

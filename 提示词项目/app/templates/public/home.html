@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Prompt Hub · 提示词库 · 首页{% endblock %}
+
+{% block content %}
+<div style="text-align:center; padding: 60px 0 40px;">
+    <h1 style="font-size:2.2rem; margin-bottom:12px;">⚡ Prompt Hub</h1>
+    <p style="color:var(--text-dim); font-size:1.1rem; max-width:600px; margin:0 auto 24px;">
+        输入模糊需求，AI 自动生成专业可直接用的提示词。<br>外贸独立站、视频创作、编程开发……覆盖所有真实场景。
+    </p>
+    <div style="display:flex; gap:12px; justify-content:center;">
+        <a href="/browse" class="btn btn-primary" style="font-size:1rem; padding:12px 28px;">📚 浏览提示词库</a>
+        <a href="/admin/prompts/new" class="btn" style="font-size:1rem; padding:12px 28px;">✨ AI 增强创建</a>
+    </div>
+</div>
+
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding-bottom: 40px;">
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2rem; margin-bottom:8px;">🤖</div>
+        <h3>AI 增强生成</h3>
+        <p style="color:var(--text-dim); font-size:0.9rem;">输入关键词，AI 自动补齐为专家级提示词，直接可用</p>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2rem; margin-bottom:8px;">🌐</div>
+        <h3>URL 抓取</h3>
+        <p style="color:var(--text-dim); font-size:0.9rem;">粘贴链接自动提取页面中的高质量提示词</p>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2rem; margin-bottom:8px;">📂</div>
+        <h3>场景分类</h3>
+        <p style="color:var(--text-dim); font-size:0.9rem;">外贸、视频、编程、设计……树形分类一清二楚</p>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2rem; margin-bottom:8px;">📋</div>
+        <h3>版本管理</h3>
+        <p style="color:var(--text-dim); font-size:0.9rem;">每次编辑自动保存历史版本，随时回溯</p>
+    </div>
+</div>
+
+{% if prompts %}
+<h2 style="margin-bottom:16px;">🔥 最新提示词</h2>
+<div class="prompt-list">
+    {% for p in prompts %}
+    <a href="/prompts/{{ p.slug }}" style="text-decoration:none; color:inherit;">
+        <div class="prompt-card">
+            <h3>{{ p.title }}</h3>
+            <div class="meta">
+                {% if p.category %}<span>📁 {{ p.category.name }}</span>{% endif %}
+                <span class="badge badge-{{ 'beginner' if p.difficulty.value == 'beginner' else 'intermediate' if p.difficulty.value == 'intermediate' else 'advanced' }}">
+                    {{ '初级' if p.difficulty.value == 'beginner' else '中级' if p.difficulty.value == 'intermediate' else '高级' }}
+                </span>
+                <span>👁 {{ p.view_count }}</span>
+                {% for t in p.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}
+            </div>
+            {% if p.description %}<p style="color:var(--text-dim);font-size:0.85rem;margin-top:8px;">{{ p.description[:120] }}</p>{% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

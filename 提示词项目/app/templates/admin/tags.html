@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}管理标签{% endblock %}
+
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin:24px 0 16px;">
+    <h1>🏷 标签管理</h1>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <div class="card">
+        <h3>添加标签</h3>
+        <form action="/admin/tags/save" method="post">
+            <div class="form-group">
+                <label>名称 *</label>
+                <input type="text" name="name" required>
+            </div>
+            <div class="form-group">
+                <label>Slug</label>
+                <input type="text" name="slug" placeholder="留空自动生成">
+            </div>
+            <button type="submit" class="btn btn-primary">+ 添加</button>
+        </form>
+    </div>
+    <div>
+        <table>
+            <thead><tr><th>名称</th><th>Slug</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for t in tags %}
+                <tr>
+                    <td><span class="tag">{{ t.name }}</span></td>
+                    <td style="font-size:0.85rem; color:var(--text-dim);">{{ t.slug }}</td>
+                    <td>
+                        <form action="/admin/tags/{{ t.id }}/delete" method="post" onsubmit="return confirm('确认删除？')">
+                            <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" style="text-align:center; color:var(--text-dim);">暂无标签</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

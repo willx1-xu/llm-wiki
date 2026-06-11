@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ prompt.title }} · Prompt Hub{% endblock %}
+
+{% block content %}
+<div style="max-width:800px; margin:0 auto; padding:24px 0;">
+    <div style="margin-bottom:8px;"><a href="/browse">← 返回浏览</a></div>
+
+    <div class="card">
+        <h1 style="font-size:1.5rem; margin-bottom:12px;">{{ prompt.title }}</h1>
+        <div class="meta" style="margin-bottom:16px;">
+            {% if prompt.category %}<span>📁 {{ prompt.category.name }}</span>{% endif %}
+            <span class="badge badge-{{ 'beginner' if prompt.difficulty.value == 'beginner' else 'intermediate' if prompt.difficulty.value == 'intermediate' else 'advanced' }}">
+                {{ '初级' if prompt.difficulty.value == 'beginner' else '中级' if prompt.difficulty.value == 'intermediate' else '高级' }}
+            </span>
+            {% if prompt.model_suitability %}<span>🤖 {{ prompt.model_suitability }}</span>{% endif %}
+            <span>👁 {{ prompt.view_count }}</span>
+            {% for t in prompt.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}
+        </div>
+
+        {% if prompt.scenario_desc %}
+        <div style="background:var(--bg); padding:12px; border-radius:6px; margin-bottom:16px;">
+            <strong>📖 使用场景：</strong>{{ prompt.scenario_desc }}
+        </div>
+        {% endif %}
+
+        <div style="position:relative;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong>📝 提示词内容：</strong>
+                <button class="btn btn-sm copy-btn" onclick="navigator.clipboard.writeText(this.dataset.content); this.textContent='✅ 已复制!'; setTimeout(()=>this.textContent='📋 复制', 2000);"
+                        data-content="{{ prompt.content|e }}">
+                    📋 复制
+                </button>
+            </div>
+            <pre style="background:var(--bg); padding:16px; border-radius:6px; overflow-x:auto; font-size:0.9rem; line-height:1.6; white-space:pre-wrap; word-break:break-word;">{{ prompt.content }}</pre>
+        </div>
+
+        {% if prompt.expected_output %}
+        <div style="margin-top:16px;">
+            <strong>📤 预期输出：</strong>
+            <pre style="background:var(--bg); padding:12px; border-radius:6px; font-size:0.85rem; margin-top:8px; white-space:pre-wrap;">{{ prompt.expected_output }}</pre>
+        </div>
+        {% endif %}
+
+        {% if prompt.source_url %}
+        <div style="margin-top:12px; font-size:0.85rem; color:var(--text-dim);">
+            📎 来源：<a href="{{ prompt.source_url }}" target="_blank">{{ prompt.source_url }}</a>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if prompt.versions %}
+    <details style="margin-top:16px;">
+        <summary style="cursor:pointer; color:var(--text-dim);">📜 版本历史 ({{ prompt.versions|length }} 个版本)</summary>
+        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+            {% for v in prompt.versions %}
+            <div class="card" style="padding:12px;">
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem;">
+                    <strong>v{{ v.version_number }}</strong>
+                    <span style="color:var(--text-dim);">{{ v.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
+                {% if v.change_note %}<p style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">{{ v.change_note }}</p>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+</div>
+{% endblock %}

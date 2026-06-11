@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}管理提示词{% endblock %}
+
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin:24px 0 16px;">
+    <h1>📝 提示词管理</h1>
+    <a href="/admin/prompts/new" class="btn btn-primary">+ 新建</a>
+</div>
+
+<div class="search-bar">
+    <form action="/admin/prompts" method="get" style="display:flex; gap:8px; width:100%;">
+        <input type="text" name="search" placeholder="搜索..." value="{{ search }}" style="max-width:300px;">
+        <select name="category_id" style="max-width:180px;">
+            <option value="">全部分类</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}" {% if category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">筛选</button>
+        {% if search %}<a href="/admin/prompts" class="btn btn-sm">清除</a>{% endif %}
+    </form>
+</div>
+
+<table>
+    <thead>
+        <tr><th>标题</th><th>分类</th><th>难度</th><th>状态</th><th>浏览</th><th>更新时间</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+        {% for p in prompts %}
+        <tr>
+            <td><a href="/prompts/{{ p.slug }}">{{ p.title[:50] }}</a></td>
+            <td>{% if p.category %}{{ p.category.icon }} {{ p.category.name }}{% else %}-{% endif %}</td>
+            <td><span class="badge badge-{{ 'beginner' if p.difficulty.value == 'beginner' else 'intermediate' if p.difficulty.value == 'intermediate' else 'advanced' }}">
+                {{ '初级' if p.difficulty.value == 'beginner' else '中级' if p.difficulty.value == 'intermediate' else '高级' }}
+            </span></td>
+            <td>
+                {% if p.is_published %}<span style="color:var(--green);">已发布</span>{% else %}<span style="color:var(--text-dim);">未发布</span>{% endif %}
+                {% if p.is_private %}<span style="color:var(--orange);">· 私密</span>{% endif %}
+            </td>
+            <td>{{ p.view_count }}</td>
+            <td style="font-size:0.8rem;">{{ p.updated_at.strftime('%m-%d %H:%M') }}</td>
+            <td>
+                <div style="display:flex; gap:6px;">
+                    <a href="/admin/prompts/{{ p.id }}/edit" class="btn btn-sm">编辑</a>
+                    <form action="/admin/prompts/{{ p.id }}/delete" method="post" onsubmit="return confirm('确认删除？')">
+                        <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-dim);">还没有提示词，<a href="/admin/prompts/new">创建第一条 →</a></td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="/admin/prompts?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if category_id %}&category_id={{ category_id }}{% endif %}" class="btn btn-sm">← 上一页</a>
+    {% endif %}
+    {% if prompts|length == 20 %}
+    <a href="/admin/prompts?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if category_id %}&category_id={{ category_id }}{% endif %}" class="btn btn-sm">下一页 →</a>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}浏览提示词{% endblock %}
+
+{% block content %}
+<div class="layout">
+    <aside class="sidebar">
+        <h3 style="margin-bottom:12px;">📂 分类</h3>
+        <a href="/browse" class="cat-link {% if not current_category %}active{% endif %}">全部</a>
+        {% for cat in categories %}
+        <a href="/browse?category={{ cat.slug }}" class="cat-link {% if current_category == cat.slug %}active{% endif %}">
+            {{ cat.icon }} {{ cat.name }}
+        </a>
+        {% for child in cat.children %}
+        <a href="/browse?category={{ child.slug }}" class="cat-link child {% if current_category == child.slug %}active{% endif %}">
+            {{ child.icon }} {{ child.name }}
+        </a>
+        {% endfor %}
+        {% endfor %}
+
+        <h3 style="margin-top:20px; margin-bottom:12px;">📊 难度</h3>
+        <a href="/browse?difficulty=beginner{% if current_category %}&category={{ current_category }}{% endif %}"
+           class="cat-link {% if difficulty == 'beginner' %}active{% endif %}">🟢 初级</a>
+        <a href="/browse?difficulty=intermediate{% if current_category %}&category={{ current_category }}{% endif %}"
+           class="cat-link {% if difficulty == 'intermediate' %}active{% endif %}">🟡 中级</a>
+        <a href="/browse?difficulty=advanced{% if current_category %}&category={{ current_category }}{% endif %}"
+           class="cat-link {% if difficulty == 'advanced' %}active{% endif %}">🔴 高级</a>
+    </aside>
+
+    <main>
+        <div class="search-bar">
+            <form action="/browse" method="get" style="display:flex; gap:8px; width:100%;">
+                <input type="text" name="search" placeholder="搜索提示词标题或内容..." value="{{ search }}" style="max-width:400px;">
+                {% if current_category %}<input type="hidden" name="category" value="{{ current_category }}">{% endif %}
+                {% if difficulty %}<input type="hidden" name="difficulty" value="{{ difficulty }}">{% endif %}
+                <button type="submit" class="btn btn-primary">🔍 搜索</button>
+            </form>
+        </div>
+
+        <div class="prompt-list">
+            {% for p in prompts %}
+            <a href="/prompts/{{ p.slug }}" style="text-decoration:none; color:inherit;">
+                <div class="prompt-card">
+                    <h3>{{ p.title }}</h3>
+                    <div class="meta">
+                        {% if p.category %}<span>📁 {{ p.category.name }}</span>{% endif %}
+                        <span class="badge badge-{{ 'beginner' if p.difficulty.value == 'beginner' else 'intermediate' if p.difficulty.value == 'intermediate' else 'advanced' }}">
+                            {{ '初级' if p.difficulty.value == 'beginner' else '中级' if p.difficulty.value == 'intermediate' else '高级' }}
+                        </span>
+                        <span>👁 {{ p.view_count }}</span>
+                        {% for t in p.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}
+                    </div>
+                    {% if p.description %}<p style="color:var(--text-dim);font-size:0.85rem;margin-top:8px;">{{ p.description[:150] }}</p>{% endif %}
+                </div>
+            </a>
+            {% else %}
+            <div class="card" style="text-align:center; padding:40px;">
+                <p style="color:var(--text-dim); font-size:1.1rem;">暂无提示词，<a href="/admin/prompts/new">去创建 →</a></p>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if page > 1 or prompts|length == 20 %}
+        <div class="pagination">
+            {% if page > 1 %}
+            <a href="/browse?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}{% if difficulty %}&difficulty={{ difficulty }}{% endif %}"
+               class="btn btn-sm">← 上一页</a>
+            {% endif %}
+            <a href="/browse?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}{% if difficulty %}&difficulty={{ difficulty }}{% endif %}"
+               class="btn btn-sm">下一页 →</a>
+        </div>
+        {% endif %}
+    </main>
+</div>
+{% endblock %}

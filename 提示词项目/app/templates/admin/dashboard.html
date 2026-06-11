@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}管理后台 · Prompt Hub{% endblock %}
+
+{% block content %}
+<h1 style="margin:24px 0 20px;">⚙️ 管理后台</h1>
+
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:32px;">
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem; font-weight:700; color:var(--accent);">{{ prompt_count }}</div>
+        <div style="color:var(--text-dim);">总提示词</div>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem; font-weight:700; color:var(--green);">{{ published_count }}</div>
+        <div style="color:var(--text-dim);">已发布</div>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:2.5rem; font-weight:700; color:var(--purple);">{{ categories|length }}</div>
+        <div style="color:var(--text-dim);">分类</div>
+    </div>
+</div>
+
+<div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <a href="/admin/prompts" class="btn btn-primary">📝 管理提示词</a>
+    <a href="/admin/prompts/new" class="btn">✨ AI 增强创建</a>
+    <a href="/admin/categories" class="btn">📂 管理分类</a>
+    <a href="/admin/tags" class="btn">🏷 管理标签</a>
+</div>
+{% endblock %}

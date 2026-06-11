@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}{% if prompt %}编辑{% else %}创建{% endif %}提示词{% endblock %}
+
+{% block head %}
+<script>
+    async function enhancePrompt() {
+        const input = document.getElementById('enhance-input').value.trim();
+        if (!input) { alert('请输入需求描述'); return; }
+        const btn = document.getElementById('enhance-btn');
+        btn.disabled = true;
+        btn.textContent = 'AI 生成中...';
+        try {
+            const formData = new FormData();
+            formData.append('user_input', input);
+            const resp = await fetch('/api/enhance', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.success) {
+                const d = data.data;
+                document.getElementById('title').value = d.title || '';
+                document.getElementById('content').value = d.content || '';
+                document.getElementById('description').value = d.description || '';
+                document.getElementById('scenario_desc').value = d.scenario_desc || '';
+                document.getElementById('expected_output').value = d.expected_output || '';
+                document.getElementById('model_suitability').value = d.model_suitability || '';
+                const diffMap = { 'beginner': '初级', 'intermediate': '中级', 'advanced': '高级' };
+                document.getElementById('difficulty').value = d.difficulty || 'beginner';
+                document.getElementById('result-info').innerHTML =
+                    '<div class="flash flash-success">✅ AI 已生成！标题：' + d.title + ' | 分类建议：' + (d.category_path || '') + '</div>';
+            } else {
+                document.getElementById('result-info').innerHTML = '<div class="flash flash-error">❌ 生成失败</div>';
+            }
+        } catch(e) {
+            document.getElementById('result-info').innerHTML = '<div class="flash flash-error">❌ ' + e.message + '</div>';
+        }
+        btn.disabled = false;
+        btn.textContent = '✨ AI 增强生成';
+    }
+
+    async function scrapeUrl() {
+        const url = document.getElementById('scrape-url').value.trim();
+        if (!url) { alert('请输入 URL'); return; }
+        const btn = document.getElementById('scrape-btn');
+        btn.disabled = true;
+        btn.textContent = '抓取中...';
+        try {
+            const formData = new FormData();
+            formData.append('url', url);
+            const resp = await fetch('/api/scrape', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.success && data.data.items.length > 0) {
+                const item = data.data.items[0];
+                document.getElementById('content').value = item.content || '';
+                document.getElementById('source_url').value = data.data.url;
+                const srcType = document.getElementById('source_type');
+                if (srcType) srcType.value = 'url_scrape';
+                document.getElementById('result-info').innerHTML =
+                    '<div class="flash flash-success">✅ 已从 ' + data.data.url + ' 提取到内容（置信度: ' + data.data.confidence + '）</div>';
+            } else {
+                document.getElementById('result-info').innerHTML = '<div class="flash flash-error">❌ 未从该 URL 提取到提示词内容</div>';
+            }
+        } catch(e) {
+            document.getElementById('result-info').innerHTML = '<div class="flash flash-error">❌ ' + e.message + '</div>';
+        }
+        btn.disabled = false;
+        btn.textContent = '🔗 抓取';
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:800px; margin:0 auto; padding:24px 0;">
+    <h1 style="margin-bottom:20px;">{% if prompt %}✏️ 编辑：{{ prompt.title }}{% else %}✨ 创建新提示词{% endif %}</h1>
+
+    <!-- AI Enhance -->
+    {% if not prompt %}
+    <div class="card" style="margin-bottom:20px; border-color:var(--purple);">
+        <h3>🤖 AI 增强生成</h3>
+        <p style="color:var(--text-dim); font-size:0.85rem; margin-bottom:10px;">输入模糊需求，AI 自动生成专业提示词</p>
+        <div style="display:flex; gap:8px;">
+            <input type="text" id="enhance-input" placeholder="例如：谷歌深度收录级别的外贸独立站怎么搭" style="flex:1;">
+            <button id="enhance-btn" class="btn btn-primary" onclick="enhancePrompt()">✨ AI 增强生成</button>
+        </div>
+        <div id="result-info"></div>
+
+        <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+            <p style="color:var(--text-dim); font-size:0.8rem;">🔗 也可以从 URL 抓取：</p>
+            <div style="display:flex; gap:8px;">
+                <input type="url" id="scrape-url" placeholder="https://example.com/prompt-page" style="flex:1;">
+                <button id="scrape-btn" class="btn btn-sm" onclick="scrapeUrl()">🔗 抓取</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Edit form -->
+    <form action="/admin/prompts/save" method="post" class="card">
+        {% if prompt %}<input type="hidden" name="prompt_id" value="{{ prompt.id }}">{% endif %}
+
+        <div class="form-group">
+            <label>标题 *</label>
+            <input type="text" id="title" name="title" value="{{ prompt.title if prompt else '' }}" required>
+        </div>
+
+        <div class="form-group">
+            <label>提示词内容 *</label>
+            <textarea id="content" name="content" rows="12" required style="font-family: monospace;">{{ prompt.content if prompt else '' }}</textarea>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-group">
+                <label>简短描述</label>
+                <input type="text" id="description" name="description" value="{{ prompt.description or '' }}">
+            </div>
+            <div class="form-group">
+                <label>使用场景</label>
+                <input type="text" id="scenario_desc" name="scenario_desc" value="{{ prompt.scenario_desc or '' }}">
+            </div>
+            <div class="form-group">
+                <label>预期输出</label>
+                <textarea id="expected_output" name="expected_output" rows="3">{{ prompt.expected_output or '' }}</textarea>
+            </div>
+            <div class="form-group">
+                <label>适用模型</label>
+                <input type="text" id="model_suitability" name="model_suitability" value="{{ prompt.model_suitability or '' }}" placeholder="GPT-4, Claude, DeepSeek">
+            </div>
+            <div class="form-group">
+                <label>难度</label>
+                <select id="difficulty" name="difficulty">
+                    <option value="beginner" {% if prompt and prompt.difficulty.value == 'beginner' %}selected{% endif %}>初级</option>
+                    <option value="intermediate" {% if prompt and prompt.difficulty.value == 'intermediate' %}selected{% endif %}>中级</option>
+                    <option value="advanced" {% if prompt and prompt.difficulty.value == 'advanced' %}selected{% endif %}>高级</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>来源 URL</label>
+                <input type="url" id="source_url" name="source_url" value="{{ prompt.source_url or '' }}">
+            </div>
+            <div class="form-group">
+                <label>来源类型</label>
+                <select id="source_type" name="source_type">
+                    <option value="manual" {% if prompt and prompt.source_type.value == 'manual' %}selected{% endif %}>手工</option>
+                    <option value="url_scrape" {% if prompt and prompt.source_type.value == 'url_scrape' %}selected{% endif %}>URL 抓取</option>
+                    <option value="batch_crawl" {% if prompt and prompt.source_type.value == 'batch_crawl' %}selected{% endif %}>批量采集</option>
+                    <option value="ai_enhance" {% if prompt and prompt.source_type.value == 'ai_enhance' %}selected{% endif %}>AI 增强</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>分类</label>
+                <select name="category_id">
+                    <option value="">无分类</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if prompt and prompt.category_id == cat.id %}selected{% endif %}>{{ cat.icon }} {{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>标签（逗号分隔 ID）</label>
+                <input type="text" name="tag_ids" value="{% if prompt %}{% for t in prompt.tags %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}{% endif %}" placeholder="tag-id-1, tag-id-2">
+            </div>
+        </div>
+
+        <div style="display:flex; gap:16px; margin-top:8px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" name="is_published" {% if prompt and prompt.is_published %}checked{% endif %} style="width:auto;">
+                <span>公开发布</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" name="is_private" {% if not prompt or prompt.is_private %}checked{% endif %} style="width:auto;">
+                <span>私密</span>
+            </label>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:20px;">
+            <button type="submit" class="btn btn-primary">💾 保存</button>
+            <a href="/admin/prompts" class="btn">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
