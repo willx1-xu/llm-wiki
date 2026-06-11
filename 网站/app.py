@@ -664,6 +664,9 @@ function renderGraph() {
       // Center pull
       n.vx += (cx - n.x) * kCenter;
       n.vy += (cy - n.y) * kCenter;
+      // Gentle perpetual rotation
+      n.vx += (cy - n.y) * 0.00015;
+      n.vy += (n.x - cx) * 0.00015;
     }
 
     // Repulsion
