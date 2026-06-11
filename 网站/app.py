@@ -576,20 +576,49 @@ function renderGraph() {
   const typeColors = { concept: '#58a6ff', entity: '#f0c674', source: '#4ade80', comparison: '#a78bfa', index: '#f87171', log: '#6b7280' };
 
   let hoverNode = null;
+  let dragNode = null;
+  let dragMoved = false;
   let animId;
 
-  canvas.onmousemove = (e) => {
+  function getMousePos(e) {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  canvas.onmousedown = (e) => {
+    const pos = getMousePos(e);
+    for (const n of nodes) {
+      const dx = pos.x - n.x, dy = pos.y - n.y;
+      if (Math.sqrt(dx*dx+dy*dy) < 14) {
+        dragNode = n;
+        dragMoved = false;
+        n.fixed = true;
+        n.x = pos.x;
+        n.y = pos.y;
+        canvas.style.cursor = 'grabbing';
+        break;
+      }
+    }
+  };
+
+  canvas.onmousemove = (e) => {
+    const pos = getMousePos(e);
+    if (dragNode) {
+      dragNode.x = pos.x;
+      dragNode.y = pos.y;
+      dragMoved = true;
+      tooltip.style.display = 'none';
+      return;
+    }
     hoverNode = null;
     for (const n of nodes) {
-      const dx = mx - n.x, dy = my - n.y;
+      const dx = pos.x - n.x, dy = pos.y - n.y;
       if (Math.sqrt(dx*dx+dy*dy) < 12) { hoverNode = n; break; }
     }
     if (hoverNode) {
       tooltip.style.display = 'block';
-      tooltip.style.left = (mx + 15) + 'px';
-      tooltip.style.top = (my - 10) + 'px';
+      tooltip.style.left = (pos.x + 15) + 'px';
+      tooltip.style.top = (pos.y - 10) + 'px';
       tooltip.innerHTML = `<strong>${hoverNode.label}</strong><br><span style="color:var(--muted)">${hoverNode.type}</span>`;
       canvas.style.cursor = 'pointer';
     } else {
@@ -598,9 +627,30 @@ function renderGraph() {
     }
   };
 
-  canvas.onclick = () => {
-    if (hoverNode && hoverNode.path) loadPage(hoverNode.path);
+  canvas.onmouseup = canvas.onmouseleave = () => {
+    if (dragNode && !dragMoved) {
+      // Click without drag — navigate
+      if (dragNode.path) loadPage(dragNode.path);
+    }
+    if (dragNode) {
+      dragNode.fixed = false;
+    }
+    dragNode = null;
+    dragMoved = false;
+    canvas.style.cursor = hoverNode ? 'pointer' : 'grab';
   };
+
+  // Prevent context menu on canvas
+  canvas.oncontextmenu = (e) => e.preventDefault();
+  // Global mouseup to release drag even outside canvas
+  window.addEventListener('mouseup', () => {
+    if (dragNode) {
+      dragNode.fixed = false;
+      dragNode = null;
+      dragMoved = false;
+      canvas.style.cursor = 'grab';
+    }
+  });
 
   function sim() {
     // Forces
@@ -609,6 +659,7 @@ function renderGraph() {
     const damp = 0.85;
 
     for (const n of nodes) {
+      if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
       n.vx *= damp; n.vy *= damp;
       // Center pull
       n.vx += (cx - n.x) * kCenter;
@@ -622,8 +673,8 @@ function renderGraph() {
         const dist = Math.sqrt(dx*dx+dy*dy) || 1;
         const f = kRep / (dist * dist);
         const fx = dx / dist * f, fy = dy / dist * f;
-        nodes[i].vx -= fx; nodes[i].vy -= fy;
-        nodes[j].vx += fx; nodes[j].vy += fy;
+        if (!nodes[i].fixed) { nodes[i].vx -= fx; nodes[i].vy -= fy; }
+        if (!nodes[j].fixed) { nodes[j].vx += fx; nodes[j].vy += fy; }
       }
     }
 
@@ -635,12 +686,13 @@ function renderGraph() {
       const dist = Math.sqrt(dx*dx+dy*dy) || 1;
       const f = dist * kAtt;
       const fx = dx / dist * f, fy = dy / dist * f;
-      s.vx += fx; s.vy += fy;
-      t.vx -= fx; t.vy -= fy;
+      if (!s.fixed) { s.vx += fx; s.vy += fy; }
+      if (!t.fixed) { t.vx -= fx; t.vy -= fy; }
     }
 
     // Apply velocity
     for (const n of nodes) {
+      if (n.fixed) continue;
       n.x += n.vx;
       n.y += n.vy;
       n.x = Math.max(20, Math.min(canvas.width - 20, n.x));
