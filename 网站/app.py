@@ -237,12 +237,85 @@ def save_page(data: dict):
     p.write_text(fm_block + body, "utf-8")
     return {"ok": True}
 
+@app.post("/api/fetch-url")
+async def fetch_url(data: dict):
+    """Fetch and extract text content from a URL for ingest."""
+    url = data.get("url", "").strip()
+    if not url:
+        raise HTTPException(400, "url required")
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; LLMWiki/1.0; +https://github.com/willx1-xu/llm-wiki)"
+            })
+            if r.status_code != 200:
+                raise HTTPException(502, f"HTTP {r.status_code}")
+            html = r.text
+            # Simple text extraction
+            text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL|re.IGNORECASE)
+            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL|re.IGNORECASE)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            # Truncate to reasonable size
+            title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE|re.DOTALL)
+            title = title_match.group(1).strip() if title_match else url
+            return {"ok": True, "title": title[:200], "content": text[:8000], "url": url}
+    except Exception as e:
+        raise HTTPException(502, f"Fetch failed: {str(e)[:200]}")
+
+@app.post("/api/precheck-ingest")
+async def precheck_ingest(data: dict):
+    """Check content for ambiguous terms before full ingest."""
+    content = data.get("content", "").strip()
+    if not content:
+        raise HTTPException(400, "content required")
+
+    system = """You are an ambiguity detector. Analyze the input for terms that have MULTIPLE distinct meanings across different domains.
+
+Examples of ambiguous terms:
+- "GEO" could mean: (A) Generative/Google Engine Optimization (SEO), or (B) Geography/Geospatial
+- "Python" could mean: (A) Programming language, or (B) Snake species
+- "苹果" could mean: (A) Apple company, or (B) Apple fruit
+
+For each ambiguous term found, output a JSON array. If nothing is ambiguous, output [].
+
+Format:
+```json
+[
+  {"term": "GEO", "options": ["搜索引擎优化 (SEO)", "地理信息系统 (Geography/GIS)"], "context": "用户在描述...", "suggested": 0}
+]
+```
+
+Only flag truly ambiguous terms. Don't flag terms that are clear from context."""
+
+    user = f"## Content to check for ambiguities\n\n{content[:3000]}\n\nOutput ONLY the JSON array, no other text."
+
+    try:
+        resp = await call_llm(system, user, temperature=0)
+        # Extract JSON
+        json_match = re.search(r'\[.*\]', resp, re.DOTALL)
+        if json_match:
+            import json
+            ambiguities = json.loads(json_match.group(0))
+            return {"ok": True, "ambiguities": ambiguities}
+        return {"ok": True, "ambiguities": []}
+    except:
+        return {"ok": True, "ambiguities": []}
+
 @app.post("/api/ingest")
 async def ingest(data: dict):
     content = data.get("content", "").strip()
     title = data.get("title", "Untitled")
+    clarifications = data.get("clarifications", [])  # user-confirmed term meanings
     if not content:
         raise HTTPException(400, "content required")
+
+    # Build clarification context
+    clarification_note = ""
+    if clarifications:
+        clarification_note = "\n\n## ⚠️ 术语含义已确认\n用户已确认以下术语的含义，必须严格按此理解：\n"
+        for c in clarifications:
+            clarification_note += f"- **{c['term']}** = {c['chosen']}\n"
 
     # Check for existing similar pages
     existing_pages = []
@@ -282,7 +355,7 @@ async def ingest(data: dict):
         overlap_warning = f"\n\n⚠️ POTENTIAL DUPLICATES DETECTED: The following existing pages overlap with the new content. UPDATE these pages instead of creating duplicates: {json.dumps(overlaps, ensure_ascii=False)}"
 
     system = SCHEMA + "\n\nYou are a disciplined wiki maintainer. For each extracted piece of knowledge, assign a confidence level (high/medium/low). Skip content with confidence=low. If similar pages exist, UPDATE them instead of creating duplicates. Output each file as:\n\n```markdown {wiki/path/to/file.md}\n(full markdown with frontmatter)\n```"
-    user = f"## Ingest Task\n\n**Source title**: {title}\n\n**Existing pages**:\n{existing_summary}{overlap_warning}\n\n**Raw content**:\n\n{content}\n\nInstructions:\n1. Only extract knowledge with confidence=high or medium. Skip trivia.\n2. If a similar page already exists, UPDATE it (add new info, don't duplicate).\n3. Create source summary in wiki/sources/\n4. Create/update concept pages in wiki/concepts/\n5. Create/update entity pages in wiki/entities/\n6. Update wiki/index.md\n7. Append to wiki/log.md\n8. Each page MUST have at least 2 [[wikilinks]] to existing pages.\n\nOutput each file as a code block with the file path in braces."
+    user = f"## Ingest Task\n\n**Source title**: {title}{clarification_note}\n\n**Existing pages**:\n{existing_summary}{overlap_warning}\n\n**Raw content**:\n\n{content}\n\nInstructions:\n1. Only extract knowledge with confidence=high or medium. Skip trivia.\n2. If a similar page already exists, UPDATE it (add new info, don't duplicate).\n3. Create source summary in wiki/sources/\n4. Create/update concept pages in wiki/concepts/\n5. Create/update entity pages in wiki/entities/\n6. Update wiki/index.md\n7. Append to wiki/log.md\n8. Each page MUST have at least 2 [[wikilinks]] to existing pages.\n\nOutput each file as a code block with the file path in braces."
 
     llm_resp = await call_llm(system, user)
     results = apply_llm_changes(llm_resp)
@@ -502,8 +575,22 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
   <div class="panel-section">
     <h3>📥 Ingest · 摄入</h3>
-    <input id="ingest-title" placeholder="来源标题（可选）" style="margin-bottom:6px">
-    <textarea id="ingest-content" placeholder="粘贴文章、论文摘要或任何你想存入知识库的内容..."></textarea>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button class="btn" style="flex:1;padding:6px;font-size:11px" id="tab-paste" onclick="switchIngestTab('paste')">📋 粘贴</button>
+      <button class="btn" style="flex:1;padding:6px;font-size:11px" id="tab-url" onclick="switchIngestTab('url')">🌐 网址</button>
+    </div>
+    <div id="ingest-paste">
+      <input id="ingest-title" placeholder="来源标题（可选）" style="margin-bottom:6px">
+      <textarea id="ingest-content" placeholder="粘贴文章或任何内容..."></textarea>
+    </div>
+    <div id="ingest-url" style="display:none">
+      <input id="ingest-url-input" placeholder="粘贴网址 URL，如 https://..." style="margin-bottom:6px">
+      <div class="result-box" id="url-preview"></div>
+    </div>
+    <div id="ambiguity-box" style="display:none;margin-top:8px;padding:10px;background:rgba(240,198,116,.08);border:1px solid var(--accent);border-radius:6px">
+      <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:6px">⚠️ 检测到歧义术语，请确认含义：</div>
+      <div id="ambiguity-options"></div>
+    </div>
     <button class="btn btn-accent" onclick="doIngest()" id="btn-ingest">摄入知识</button>
     <div class="result-box" id="ingest-result"></div>
   </div>
@@ -905,21 +992,116 @@ function renderGraph() {
 }
 
 // ── ingest ──
-async function doIngest() {
-  const title = document.getElementById('ingest-title').value.trim() || 'Untitled';
-  const content = document.getElementById('ingest-content').value.trim();
-  if (!content) return alert('请粘贴要摄入的内容');
+let ingestTab = 'paste';
+let urlFetchedContent = '';
+let urlFetchedTitle = '';
+let pendingClarifications = [];
 
+function switchIngestTab(tab) {
+  ingestTab = tab;
+  document.getElementById('ingest-paste').style.display = tab === 'paste' ? 'block' : 'none';
+  document.getElementById('ingest-url').style.display = tab === 'url' ? 'block' : 'none';
+  document.getElementById('tab-paste').classList.toggle('active', tab === 'paste');
+  document.getElementById('tab-url').classList.toggle('active', tab === 'url');
+}
+
+async function fetchURL() {
+  const url = document.getElementById('ingest-url-input').value.trim();
+  if (!url) return;
+  const preview = document.getElementById('url-preview');
+  preview.innerHTML = '<span class="spinner"></span> 抓取中...';
+  try {
+    const res = await fetch('/api/fetch-url', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      urlFetchedContent = data.content;
+      urlFetchedTitle = data.title;
+      preview.innerHTML = `<span class="status-badge status-ok">✓</span> ${data.title}<br><span style="color:var(--muted);font-size:11px">${data.content.length} 字符</span>`;
+    } else {
+      preview.innerHTML = '<span style="color:var(--red)">抓取失败</span>';
+    }
+  } catch(e) {
+    preview.innerHTML = '<span style="color:var(--red)">抓取失败</span>';
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const urlInput = document.getElementById('ingest-url-input');
+  if (urlInput) urlInput.addEventListener('change', fetchURL);
+});
+
+async function doIngest() {
   const btn = document.getElementById('btn-ingest');
   const result = document.getElementById('ingest-result');
+  let content, title;
+
+  if (ingestTab === 'url') {
+    if (!urlFetchedContent) {
+      await fetchURL();
+      if (!urlFetchedContent) return alert('请先输入网址并抓取内容');
+    }
+    content = urlFetchedContent;
+    title = urlFetchedTitle || document.getElementById('ingest-url-input').value.trim();
+  } else {
+    content = document.getElementById('ingest-content').value.trim();
+    title = document.getElementById('ingest-title').value.trim() || 'Untitled';
+  }
+  if (!content) return alert('请输入要摄入的内容');
+
+  // Step 1: Precheck for ambiguities
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 摄入中...';
+  btn.innerHTML = '<span class="spinner"></span> 检测歧义...';
   result.innerHTML = '';
 
+  let clarifications = [];
+  try {
+    const pcRes = await fetch('/api/precheck-ingest', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({content})
+    });
+    const pcData = await pcRes.json();
+    const ambs = pcData.ambiguities || [];
+
+    if (ambs.length > 0 && pendingClarifications.length === 0) {
+      // Show ambiguity UI
+      const box = document.getElementById('ambiguity-box');
+      const opts = document.getElementById('ambiguity-options');
+      pendingClarifications = ambs;
+      opts.innerHTML = ambs.map((a, i) => `
+        <div style="margin-bottom:8px;font-size:12px">
+          <strong>${a.term}</strong> <span style="color:var(--muted)">${a.context||''}</span>
+          <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+            ${a.options.map((o, j) => `
+              <label style="cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;background:${j===a.suggested?'rgba(88,166,255,.2)':'var(--card)'};border:1px solid ${j===a.suggested?'var(--accent2)':'var(--border)'}">
+                <input type="radio" name="amb_${i}" value="${o}" ${j===a.suggested?'checked':''} style="display:none"> ${o}
+              </label>`).join('')}
+          </div>
+        </div>`).join('');
+      box.style.display = 'block';
+      btn.innerHTML = '确认并摄入';
+      btn.disabled = false;
+      return;
+    }
+
+    // Collect user choices if ambiguity was shown
+    if (pendingClarifications.length > 0) {
+      clarifications = pendingClarifications.map((a, i) => {
+        const selected = document.querySelector(`input[name="amb_${i}"]:checked`);
+        return { term: a.term, chosen: selected ? selected.value : a.options[a.suggested||0] };
+      });
+      pendingClarifications = [];
+      document.getElementById('ambiguity-box').style.display = 'none';
+    }
+  } catch(e) { /* precheck failed, proceed without */ }
+
+  // Step 2: Do the actual ingest
+  btn.innerHTML = '<span class="spinner"></span> 摄入中...';
   try {
     const res = await fetch('/api/ingest', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content })
+      body: JSON.stringify({ title, content, clarifications })
     });
     const data = await res.json();
     let msg = '<span class="status-badge status-ok">✓ 摄入完成</span>\n\n';
@@ -930,7 +1112,10 @@ async function doIngest() {
     result.innerHTML = msg;
     loadTree();
     loadStats();
-    loadGraph();  // refresh graph data
+    loadGraph();
+    // Reset URL state
+    urlFetchedContent = '';
+    urlFetchedTitle = '';
   } catch(e) {
     result.innerHTML = '<span class="status-badge" style="background:rgba(248,113,113,.15);color:var(--red)">✗ 失败</span>';
   }
